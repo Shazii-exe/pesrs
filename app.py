@@ -22,7 +22,7 @@ from intent_classifier import classify_intent, choose_temperature
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="PEISR — Chat",
+    page_title="PESRS — Chat",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -202,7 +202,7 @@ with st.sidebar:
                 ["python", "analyze_results.py"],
                 capture_output=True, text=True, timeout=60
             )
-            files = sorted(glob.glob("peisr_results_*.xlsx"), reverse=True)
+            files = sorted(glob.glob("pesrs_results_*.xlsx"), reverse=True)
             if files:
                 with open(files[0], "rb") as f:
                     st.download_button(
@@ -732,8 +732,8 @@ def render_black_box(d: dict):
 st.markdown("""
 <div class='topbar'>
   <div>
-    <div class='topbar-title'>⚡ PEISR Chat</div>
-    <div class='topbar-sub'>Prompt Enhancement via Iterative Self-Refinement</div>
+    <div class='topbar-title'>⚡ PESRS Chat</div>
+    <div class='topbar-sub'>Prompt Enhancement via Structured Refinement System</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
