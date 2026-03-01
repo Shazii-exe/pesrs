@@ -1,36 +1,20 @@
 # gemini_client.py
-# Primary: Gemini API (with fallback pool)
-# Optional local: Ollama (ONLY when explicitly selected)
+# Primary: Gemini API (with 45-model fallback pool)
+# Fallback: Ollama (local) when all Gemini models are quota-exhausted
 
 import os
 import time
 import json
 import re
 import logging
+from dotenv import load_dotenv
 
-# NOTE:
-# - On Streamlit Cloud, do NOT rely on .env
-# - app.py will inject st.secrets into os.environ
-# - locally, you can still use dotenv if you want
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
-
+load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [PEISR] %(message)s")
 log = logging.getLogger("peisr")
 
-# ── Provider selection ─────────────────────────────────────────
-# Use MODEL_PROVIDER to control behavior:
-#   MODEL_PROVIDER=gemini  -> Gemini ONLY (no Ollama fallback)
-#   MODEL_PROVIDER=ollama  -> Ollama ONLY
-#   unset                 -> Gemini if available, else error
-MODEL_PROVIDER = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
-
 # ── Gemini setup ───────────────────────────────────────────────
-_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _gemini_available = False
 client = None
 types = None
@@ -44,17 +28,16 @@ if _API_KEY:
         _gemini_available = True
         log.info("Gemini client initialized.")
     except Exception as e:
-        _gemini_available = False
-        log.warning(f"Gemini SDK init failed: {e}")
+        log.warning(f"Gemini SDK not available: {e}. Will use Ollama only.")
 
-# ── Ollama setup (local-only) ──────────────────────────────────
+# ── Ollama setup ───────────────────────────────────────────────
 import requests as _requests
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_URL   = os.getenv("OLLAMA_URL",   "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
-# ── Tracks which model was used last (for logging/paper) ───────
-LAST_MODEL_USED = "none"
+# ── Tracks which model was used last (for logging/paper) ──────
+LAST_MODEL_USED = OLLAMA_MODEL
 
 # ── Gemini model pools ─────────────────────────────────────────
 FAST_POOL = [
@@ -90,8 +73,9 @@ _QUOTA_SIGNALS = (
 )
 
 def _is_quota_error(err: str) -> bool:
-    e = (err or "").lower()
+    e = err.lower()
     return any(s in e for s in _QUOTA_SIGNALS)
+
 
 # ── JSON parser ────────────────────────────────────────────────
 def _parse_json(text: str) -> dict:
@@ -99,21 +83,19 @@ def _parse_json(text: str) -> dict:
         return json.loads(text)
     except Exception:
         pass
-
-    cleaned = re.sub(r"```(?:json)?|```", "", (text or "")).strip()
+    cleaned = re.sub(r"```(?:json)?|```", "", text).strip()
     try:
         return json.loads(cleaned)
     except Exception:
         pass
-
-    m = re.search(r"\{[\s\S]+\}", text or "")
+    m = re.search(r"\{[\s\S]+\}", text)
     if m:
         try:
             return json.loads(m.group(0))
         except Exception:
             pass
+    raise ValueError(f"Could not parse JSON:\n{text[:300]}")
 
-    raise ValueError(f"Could not parse JSON:\n{(text or '')[:300]}")
 
 # ── Ollama call ────────────────────────────────────────────────
 def _call_ollama(system: str, user: str, temperature: float) -> str:
@@ -134,7 +116,8 @@ def _call_ollama(system: str, user: str, temperature: float) -> str:
     log.info(f"✓ Ollama ({OLLAMA_MODEL}) succeeded")
     return resp.json()["response"].strip()
 
-# ── Gemini call with model fallback ────────────────────────────
+
+# ── Gemini call with model fallback ───────────────────────────
 def _call_gemini(
     system: str,
     user: str,
@@ -144,14 +127,11 @@ def _call_gemini(
 ) -> str:
     global LAST_MODEL_USED
 
-    if not (_gemini_available and _API_KEY and client and types):
-        raise RuntimeError("Gemini not available. Check GEMINI_API_KEY and SDK install.")
-
     seen = set()
     candidates = []
     for m in _FULL_GEMINI_FALLBACK:
         m = m.replace("models/", "").strip()
-        if m and m not in seen:
+        if m not in seen:
             candidates.append(m)
             seen.add(m)
 
@@ -167,7 +147,6 @@ def _call_gemini(
             cfg = dict(system_instruction=system, temperature=temperature)
             if response_mime_type:
                 cfg["response_mime_type"] = response_mime_type
-
             resp = client.models.generate_content(
                 model=model_name,
                 contents=user,
@@ -177,18 +156,19 @@ def _call_gemini(
             LAST_MODEL_USED = f"gemini/{model_name}"
             log.info(f"✓ Gemini {model_name} succeeded")
             return text
-
         except Exception as e:
             err_str = str(e)
             errors[model_name] = err_str
-            log.warning(f"✗ Gemini {model_name} — {err_str[:140]}")
+            log.warning(f"✗ Gemini {model_name} — {err_str[:100]}")
             time.sleep(min(0.5 * attempts, 3.0))
             continue
 
+    # All Gemini models failed
     summary = "; ".join(f"{m}: {e[:60]}" for m, e in list(errors.items())[:4])
     raise RuntimeError(f"All Gemini models failed: {summary}")
 
-# ── Master router ──────────────────────────────────────────────
+
+# ── Master router: Gemini first → Ollama fallback ─────────────
 def _call(
     system: str,
     user: str,
@@ -196,43 +176,48 @@ def _call(
     response_mime_type: str = None,
 ) -> str:
     provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
-
-    # 1) Explicit Gemini only (Streamlit Cloud safe)
+    # Force Gemini only
     if provider == "gemini":
         return _call_gemini(system, user, temperature, response_mime_type)
-
-    # 2) Explicit Ollama only (local)
+    # Force Ollama only
     if provider == "ollama":
         return _call_ollama(system, user, temperature)
-
-    # 3) Default: Gemini if possible, else fail with clear message
+    # Auto mode (default)
     if _gemini_available and _API_KEY:
-        return _call_gemini(system, user, temperature, response_mime_type)
-
+        try:
+            return _call_gemini(system, user, temperature, response_mime_type)
+        except Exception as e:
+            err = str(e)
+            # Only fallback on quota-type errors
+            if _is_quota_error(err):
+                log.warning("Gemini quota/rate limit hit → switching to Ollama")
+                return _call_ollama(system, user, temperature)
+            # Any other error should not be hidden
+            raise
     raise RuntimeError(
-        "No provider available. Set MODEL_PROVIDER=gemini and provide GEMINI_API_KEY "
-        "(recommended for Streamlit Cloud), or set MODEL_PROVIDER=ollama for local."
+        "No provider available. Set MODEL_PROVIDER=gemini with GEMINI_API_KEY "
+        "or MODEL_PROVIDER=ollama for local."
     )
+
 
 # ── Public API ─────────────────────────────────────────────────
 def generate_text(system: str, user: str, temperature: float = 0.2) -> str:
     return _call(system=system, user=user, temperature=temperature)
 
+
 def generate_json(system: str, user: str, temperature: float = 0.0) -> dict:
-    # Attempt 1: JSON mime type (Gemini)
-    if (os.getenv("MODEL_PROVIDER") or "").strip().lower() != "ollama":
+    # Attempt 1: with JSON mime type (Gemini only)
+    if _gemini_available and _API_KEY:
         try:
             text = _call_gemini(
-                system=system,
-                user=user,
-                temperature=temperature,
+                system=system, user=user, temperature=temperature,
                 response_mime_type="application/json",
             )
             return _parse_json(text)
         except Exception as e:
-            log.warning(f"JSON-mime attempt failed ({str(e)[:80]}), retrying...")
+            log.warning(f"JSON-mime attempt failed ({str(e)[:60]}), retrying...")
 
-    # Attempt 2: plain text + reinforced prompt
+    # Attempt 2: plain text with reinforced prompt
     user2 = user + "\n\nReturn valid JSON only. No markdown. No explanation."
     text = _call(system=system, user=user2, temperature=temperature)
     return _parse_json(text)
