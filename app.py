@@ -22,7 +22,7 @@ from intent_classifier import classify_intent, choose_temperature
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="PESRS — Chat",
+    page_title="PEISR — Chat",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -197,23 +197,39 @@ with st.sidebar:
     # ── Download results as Excel ──────────────────────────────
     if st.button("📊 Export Results Excel", use_container_width=True):
         try:
-            import subprocess, glob, os
-            result = subprocess.run(
-                ["python", "analyze_results.py"],
-                capture_output=True, text=True, timeout=60
+            from analyze_results import fetch_all_data, prepare, compute_overall, compute_by_route, compute_human_ratings, compute_score_distribution, compute_raw
+            import io
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+            from datetime import datetime
+
+            comp_df, rate_df = fetch_all_data()
+            df = prepare(comp_df, rate_df)
+            overall    = compute_overall(df)
+            by_route   = compute_by_route(df)
+            human      = compute_human_ratings(df)
+            score_dist = compute_score_distribution(df)
+            raw        = compute_raw(df)
+
+            # Write to in-memory buffer
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                pd.DataFrame([{"Metric": k, "Value": v} for k, v in overall.items()]).to_excel(writer, sheet_name="Summary", index=False)
+                by_route.to_excel(writer, sheet_name="By Route", index=False)
+                human.to_excel(writer, sheet_name="Human Ratings", index=False)
+                score_dist.to_excel(writer, sheet_name="Score Distribution", index=False)
+                raw.to_excel(writer, sheet_name="Raw Data", index=False)
+            buf.seek(0)
+
+            fname = f"pesrs_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            st.download_button(
+                "⬇ Download Excel",
+                data=buf.read(),
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
             )
-            files = sorted(glob.glob("pesrs_results_*.xlsx"), reverse=True)
-            if files:
-                with open(files[0], "rb") as f:
-                    st.download_button(
-                        "⬇ Download Excel",
-                        data=f.read(),
-                        file_name=os.path.basename(files[0]),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                    )
-            else:
-                st.error(f"Export failed: {result.stderr[:200]}")
         except Exception as e:
             st.error(f"Export error: {e}")
     try:
@@ -732,8 +748,8 @@ def render_black_box(d: dict):
 st.markdown("""
 <div class='topbar'>
   <div>
-    <div class='topbar-title'>⚡ PESRS Chat</div>
-    <div class='topbar-sub'>Prompt Enhancement via Structured Refinement System</div>
+    <div class='topbar-title'>⚡ PEISR Chat</div>
+    <div class='topbar-sub'>Prompt Enhancement via Iterative Self-Refinement</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -945,4 +961,40 @@ if st.session_state.pending_query:
     })
 
     st.session_state.last_run_data = run_data
+
+    # ── Auto-save to Supabase on every response ───────────────
+    try:
+        d = run_data
+        if "saved_ids" not in st.session_state:
+            st.session_state.saved_ids = set()
+        if d["comparison_id"] not in st.session_state.saved_ids:
+            save_comparison(
+                comparison_id=d["comparison_id"], run_id=d["run_id"],
+                session_id=d["session_id"],
+                human_rater=(st.session_state.get("rater_name", "") or "anonymous"),
+                user_tag=d.get("user_tag", ""),
+                variant="ABC", temp_mode="auto", threshold_mode="auto", model_mode="gemini",
+                user_input=d["original_prompt"], route_predicted=d["route"],
+                temperature_used=d["temperature_used"],
+                rewrite_threshold_used=d["threshold_used"],
+                rewritten=bool(d["rewritten"]),
+                original_prompt=d["original_prompt"],
+                original_response=d["original_response"],
+                original_prompt_critique=d.get("critique_original", {}),
+                original_prompt_heuristic=d.get("heur_original", {}),
+                enhanced_prompt=d["enhanced_prompt"],
+                enhanced_response=d.get("enhanced_response") or "",
+                enhanced_prompt_critique=d.get("critique_final", {}),
+                enhanced_prompt_heuristic=d.get("heur_enhanced", {}),
+                response_llm_judge=d.get("llm_judge", {}),
+                response_heuristic_judge=d.get("heur_judge", {}),
+                human_score_original=0,
+                human_score_enhanced=0,
+                human_pick="", human_notes="",
+                model_used=d.get("model_used", ""),
+            )
+            st.session_state.saved_ids.add(d["comparison_id"])
+    except Exception:
+        pass  # Never block the UI for a DB error
+
     st.rerun()
