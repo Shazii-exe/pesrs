@@ -3,6 +3,13 @@ app.py — PEISR Chat UI with Black Box Panel
 GPT-style continuous conversation + toggle-able backend inspector.
 All existing pipeline files (answerer, rewriter, judge, db, etc.) are untouched.
 """
+import os
+import streamlit as st
+
+# Load Streamlit secrets into environment so existing os.getenv() code works
+if hasattr(st, "secrets"):
+    for k, v in st.secrets.items():
+        os.environ.setdefault(k, str(v))
 
 import uuid
 import time
