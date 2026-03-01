@@ -31,17 +31,19 @@ class PipelineOutput:
 def _answer(prompt: str, route: str, temperature: float, history=None):
     system = ANSWER_SYSTEM_BY_ROUTE.get(route)
 
-    conversation = ""
+    # Build proper alternating USER/ASSISTANT conversation
     if history:
         conversation = ""
-
-        for prev_prompt in history:
-            conversation += f"USER: {prev_prompt}\n"
-
+        for turn in history:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role == "user":
+                conversation += f"USER: {content}\n"
+            else:
+                conversation += f"ASSISTANT: {content}\n"
         conversation += f"USER: {prompt}"
     else:
         conversation = f"USER: {prompt}"
-
 
     return generate_text(
         system=system,
@@ -105,19 +107,17 @@ def run_pipeline(
     # threshold_used is decided by the LLM inside critique_prompt() below
 
     # ── Step 2: Critique the original prompt ───────────────────────────────
-    # Build context-aware critique input
+    # Build context-aware critique input — only use previous USER prompts for context
     if history:
         context_block = ""
-        for prev_prompt in history[-6:]:
-            context_block += f"USER: {prev_prompt}\n"
+        for turn in history[-6:]:
+            if turn.get("role") == "user":
+                context_block += f"USER: {turn.get('content', '')}\n"
 
-        critique_input = f"""
-    Conversation so far:
-    {context_block}
-
-    Current user message:
-    {q}
-    """
+        critique_input = f"""Conversation so far:
+{context_block}
+Current user message:
+{q}"""
     else:
         critique_input = q
 
@@ -173,16 +173,14 @@ def run_pipeline(
 
     if history:
         context_block = ""
-        for prev_prompt in history[-6:]:
-            context_block += f"USER: {prev_prompt}\n"
+        for turn in history[-6:]:
+            if turn.get("role") == "user":
+                context_block += f"USER: {turn.get('content', '')}\n"
 
-        contextual_q = f"""
-    Conversation so far:
-    {context_block}
-
-    Current user message:
-    {q}
-    """
+        contextual_q = f"""Conversation so far:
+{context_block}
+Current user message:
+{q}"""
     else:
         contextual_q = q
 

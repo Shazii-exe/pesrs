@@ -3,13 +3,6 @@ app.py — PEISR Chat UI with Black Box Panel
 GPT-style continuous conversation + toggle-able backend inspector.
 All existing pipeline files (answerer, rewriter, judge, db, etc.) are untouched.
 """
-import os
-import streamlit as st
-
-# Load Streamlit secrets into environment so existing os.getenv() code works
-if hasattr(st, "secrets"):
-    for k, v in st.secrets.items():
-        os.environ.setdefault(k, str(v))
 
 import uuid
 import time
@@ -319,20 +312,21 @@ def run_peisr(query: str) -> dict:
 
     t0 = time.time()
 
-    # Build prompt-only memory (last 6 prompts)
+    # Build conversation history as (prompt, response) pairs — last 4 turns
     prompt_history = []
 
     for m in st.session_state.messages:
-        if m["role"] == "assistant" and m.get("run_data"):
+        if m["role"] == "user":
+            prompt_history.append({"role": "user", "content": m["content"]})
+        elif m["role"] == "assistant" and m.get("run_data"):
             rd = m["run_data"]
+            prompt_history.append({
+                "role": "assistant",
+                "content": rd.get("best_output", m.get("content", ""))
+            })
 
-            if rd.get("rewritten"):
-                prompt_history.append(rd.get("enhanced_prompt"))
-            else:
-                prompt_history.append(rd.get("original_prompt"))
-
-    # Keep last 6 prompts only
-    prompt_history = prompt_history[-6:]
+    # Keep last 8 messages (4 turns) only — excludes current message
+    prompt_history = prompt_history[-8:]
 
     # Run the gated pipeline (critique happens inside, branches on score)
 
