@@ -175,28 +175,37 @@ def _call(
     temperature: float,
     response_mime_type: str = None,
 ) -> str:
+    global _GEMINI_COOLDOWN_UNTIL
     provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
+    now = time.time()
     # Force Gemini only
     if provider == "gemini":
         return _call_gemini(system, user, temperature, response_mime_type)
     # Force Ollama only
     if provider == "ollama":
         return _call_ollama(system, user, temperature)
-    # Auto mode (default)
+    # ── AUTO MODE ───────────────────────────────────────────────
+    # If Gemini is in cooldown → skip it
+    if now < _GEMINI_COOLDOWN_UNTIL:
+        remaining = int(_GEMINI_COOLDOWN_UNTIL - now) // 60
+        log.info(f"Gemini in cooldown ({remaining}m remaining) → using Ollama")
+        return _call_ollama(system, user, temperature)
+    # Try Gemini
     if _gemini_available and _API_KEY:
         try:
             return _call_gemini(system, user, temperature, response_mime_type)
         except Exception as e:
             err = str(e)
-            # Only fallback on quota-type errors
+            # Quota error → trigger 1 hour cooldown
             if _is_quota_error(err):
-                log.warning("Gemini quota/rate limit hit → switching to Ollama")
+                _GEMINI_COOLDOWN_UNTIL = now + _GEMINI_COOLDOWN_SECONDS
+                log.warning("Gemini quota exhausted → entering 1 hour cooldown, switching to Ollama")
                 return _call_ollama(system, user, temperature)
-            # Any other error should not be hidden
+            # Non-quota error → raise normally
             raise
+    # No provider available
     raise RuntimeError(
-        "No provider available. Set MODEL_PROVIDER=gemini with GEMINI_API_KEY "
-        "or MODEL_PROVIDER=ollama for local."
+        "No provider available. Configure GEMINI_API_KEY or run Ollama locally."
     )
 
 
