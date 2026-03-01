@@ -1,5 +1,5 @@
 """
-app.py — PEISR Chat UI with Black Box Panel
+app.py — PESRS Chat UI with Black Box Panel
 GPT-style continuous conversation + toggle-able backend inspector.
 All existing pipeline files (answerer, rewriter, judge, db, etc.) are untouched.
 """
@@ -161,58 +161,49 @@ hr { border-color: #2e2e3e !important; }
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Settings")
+    st.markdown("### ⚙️ PESRS")
+    st.caption("Prompt Enhancement via Structured Refinement System")
+    st.divider()
+
+    # ── Rater name (for logging only) ─────────────────────────
     rater_name = st.text_input("Your name (for logging)", value="", placeholder="e.g., Mahek", key="rater_name")
-    user_tag   = st.text_input("User tag (optional)", value="", placeholder="e.g., Tuba-UK", key="user_tag")
 
-    admin_secret = os.getenv("ADMIN_KEY", "")
-    admin_key    = st.text_input("Admin key", value="", type="password", key="admin_key")
-    is_admin     = (admin_secret == "") or (admin_key == admin_secret)
-    show_judge   = False
-    if is_admin:
-        show_judge = st.toggle("Show judge JSON (admin)", value=False, key="show_judge_json")
-        st.caption("✅ Admin mode")
-    else:
-        st.caption("Judge JSON hidden (public)")
-
-    auto_temp = st.toggle("Auto temperature", value=True, key="auto_temp")
-    temperature = st.slider("Temperature (if auto OFF)", 0.0, 1.0, 0.4, 0.05, disabled=auto_temp)
-
-    auto_threshold = st.toggle("Auto threshold (LLM-decided)", value=True, key="auto_threshold")
-    if auto_threshold:
-        st.caption("🤖 Threshold set dynamically per prompt by the LLM")
-    else:
-        st.caption("⚠️ Manual override — disables adaptive threshold")
-    rewrite_threshold = st.slider("Threshold override", 4, 20, 15, disabled=auto_threshold)
+    # ── Hidden admin settings (kept for pipeline to work) ─────
+    is_admin       = True
+    show_judge     = False
+    auto_temp      = True
+    temperature    = 0.4
+    auto_threshold = True
+    rewrite_threshold = 15
+    user_tag       = ""
 
     st.divider()
+
+    # ── DB status ─────────────────────────────────────────────
     if is_supabase_connected():
         st.caption("🟢 Supabase connected")
     else:
-        st.caption(f"🟡 SQLite fallback: `{DB_PATH}`")
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            st.download_button("⬇ Download DB", data=f.read(), file_name=DB_PATH, mime="application/x-sqlite3", use_container_width=True)
+        st.caption(f"🟡 SQLite fallback")
 
-    # ── Download results as Excel ──────────────────────────────
+    # ── Export Excel ──────────────────────────────────────────
     if st.button("📊 Export Results Excel", use_container_width=True):
         try:
-            from analyze_results import fetch_all_data, prepare, compute_overall, compute_by_route, compute_human_ratings, compute_score_distribution, compute_raw
             import io
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-            from openpyxl.utils import get_column_letter
             from datetime import datetime
+            from analyze_results import (fetch_all_data, prepare, compute_overall,
+                compute_by_route, compute_human_ratings,
+                compute_score_distribution, compute_raw)
 
-            comp_df, rate_df = fetch_all_data()
-            df = prepare(comp_df, rate_df)
-            overall    = compute_overall(df)
-            by_route   = compute_by_route(df)
-            human      = compute_human_ratings(df)
-            score_dist = compute_score_distribution(df)
-            raw        = compute_raw(df)
+            with st.spinner("Fetching data from Supabase..."):
+                comp_df, rate_df = fetch_all_data()
+                df_res = prepare(comp_df, rate_df)
 
-            # Write to in-memory buffer
+            overall    = compute_overall(df_res)
+            by_route   = compute_by_route(df_res)
+            human      = compute_human_ratings(df_res)
+            score_dist = compute_score_distribution(df_res)
+            raw        = compute_raw(df_res)
+
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                 pd.DataFrame([{"Metric": k, "Value": v} for k, v in overall.items()]).to_excel(writer, sheet_name="Summary", index=False)
@@ -224,22 +215,17 @@ with st.sidebar:
 
             fname = f"pesrs_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             st.download_button(
-                "⬇ Download Excel",
+                "⬇ Download Excel Now",
                 data=buf.read(),
                 file_name=fname,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
+            st.success(f"✅ Ready! {len(df_res)} responses exported.")
+        except SystemExit:
+            st.warning("No data yet — use the app first to generate responses.")
         except Exception as e:
             st.error(f"Export error: {e}")
-    try:
-        rows = fetch_comparisons(limit=8)
-        if rows:
-            st.caption("Recent ratings")
-            df = pd.DataFrame(rows, columns=["id","ts","rater","route","temp","thr","rewritten","sA","sB","pick","input"])
-            st.dataframe(df[["ts","rater","route","pick","input"]], use_container_width=True, height=180)
-    except Exception:
-        pass
 
     st.divider()
     if st.button("🗑 Clear chat", use_container_width=True):
@@ -748,8 +734,8 @@ def render_black_box(d: dict):
 st.markdown("""
 <div class='topbar'>
   <div>
-    <div class='topbar-title'>⚡ PEISR Chat</div>
-    <div class='topbar-sub'>Prompt Enhancement via Iterative Self-Refinement</div>
+    <div class='topbar-title'>⚡ PESRS Chat</div>
+    <div class='topbar-sub'>Prompt Enhancement via Structured Refinement System</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -765,7 +751,7 @@ if not messages:
         <div class='avatar assistant'>P</div>
         <div>
         <div class='bubble assistant'>
-            👋 Welcome to <b>PEISR Chat</b>.<br/><br/>
+            👋 Welcome to <b>PESRS Chat</b>.<br/><br/>
             Type any prompt below — clear or messy. I'll automatically score it,
             decide if a rewrite will help, generate both versions if so, judge them,
             and show you the best answer.<br/><br/>
