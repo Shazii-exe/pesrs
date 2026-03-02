@@ -112,7 +112,7 @@ def _call_ollama(system: str, user: str, temperature: float) -> str:
             "stream": False,
             "options": {"temperature": temperature},
         },
-        timeout=300,
+        timeout=600,
     )
     resp.raise_for_status()
     LAST_MODEL_USED = f"ollama/{OLLAMA_MODEL}"
