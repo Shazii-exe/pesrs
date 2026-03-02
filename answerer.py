@@ -206,23 +206,9 @@ Current user message:
 
     mode = "light" if enhance_mode == "LIGHT" else "full"
 
-    contextual_q = q
-
-    if history:
-        context_block = ""
-        for turn in history[-6:]:
-            if turn.get("role") == "user":
-                context_block += f"USER: {turn.get('content', '')}\n"
-
-        contextual_q = f"""Conversation so far:
-{context_block}
-Current user message:
-{q}"""
-    else:
-        contextual_q = q
-
+    # Rewrite ONLY the current message — not the full conversation history
     final_prompt, trace = self_refine_rewrite(
-        contextual_q,
+        q,
         rewrite_threshold=threshold_used,
         max_rounds=max_rounds,
         mode=mode,
