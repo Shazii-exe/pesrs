@@ -10,9 +10,6 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-# ── Quota Cooldown State ─────────────────────────────────────
-_GEMINI_COOLDOWN_UNTIL   = 0.0   # timestamp until which Gemini is disabled
-_GEMINI_COOLDOWN_SECONDS = 3600  # 1 hour cooldown after quota exhaustion
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [PEISR] %(message)s")
 log = logging.getLogger("peisr")
 
@@ -112,7 +109,7 @@ def _call_ollama(system: str, user: str, temperature: float) -> str:
             "stream": False,
             "options": {"temperature": temperature},
         },
-        timeout=120,
+        timeout=300,
     )
     resp.raise_for_status()
     LAST_MODEL_USED = f"ollama/{OLLAMA_MODEL}"

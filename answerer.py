@@ -7,6 +7,35 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger("peisr")
 
 from gemini_client import generate_text
+
+
+def _detect_tone(text: str) -> str:
+    """Returns 'casual' or 'formal' based on user's writing style."""
+    casual_indicators = [
+        "bro", "lol", "lmao", "omg", "idk", "tbh", "ngl", "wtf", "bruh",
+        "u ", " ur ", "gonna", "wanna", "gotta", "kinda", "sorta", "dunno",
+        "ok ", "okay", "yea", "yeah", "nah", "coz", "cus", "cause",
+        "btw", "rn", "fr", "imo", "smh", "yk", "istg", "pls", "plz",
+    ]
+    text_lower = text.lower()
+    casual_count = sum(1 for word in casual_indicators if word in text_lower)
+    # Also check for lack of punctuation, very short sentences
+    has_caps = any(c.isupper() for c in text[1:])
+    ends_with_punct = text.strip()[-1] in ".?!" if text.strip() else False
+    if casual_count >= 1 or (not ends_with_punct and len(text.split()) <= 8):
+        return "casual"
+    return "formal"
+
+
+def _tone_instruction(tone: str) -> str:
+    if tone == "casual":
+        return (
+            "\n\nIMPORTANT: The user is talking casually and informally. "
+            "Match their energy — respond in a conversational, friendly tone. "
+            "Avoid bullet points and formal structure. Write like you're texting a friend. "
+            "Use simple language, keep it natural and warm."
+        )
+    return ""  # formal = default system prompt is fine
 from intent_classifier import IntentResult, classify_intent, choose_temperature
 from prompts import ANSWER_SYSTEM_BY_ROUTE
 from rewriter import critique_prompt, self_refine_rewrite
@@ -29,18 +58,26 @@ class PipelineOutput:
 
 
 def _answer(prompt: str, route: str, temperature: float, history=None):
-    system = ANSWER_SYSTEM_BY_ROUTE.get(route)
+    base_system = ANSWER_SYSTEM_BY_ROUTE.get(route, "")
+
+    # Detect tone from current prompt + recent history
+    tone_context = prompt
+    if history:
+        recent_user = [t.get("content","") for t in history[-4:] if t.get("role")=="user"]
+        tone_context = " ".join(recent_user) + " " + prompt
+    tone = _detect_tone(tone_context)
+    system = base_system + _tone_instruction(tone)
 
     # Build proper alternating USER/ASSISTANT conversation
     if history:
         conversation = ""
         for turn in history:
             role = turn.get("role", "user")
-            content = turn.get("content", "")
+            turn_content = turn.get("content", "")
             if role == "user":
-                conversation += f"USER: {content}\n"
+                conversation += f"USER: {turn_content}\n"
             else:
-                conversation += f"ASSISTANT: {content}\n"
+                conversation += f"ASSISTANT: {turn_content}\n"
         conversation += f"USER: {prompt}"
     else:
         conversation = f"USER: {prompt}"
