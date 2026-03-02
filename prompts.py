@@ -10,7 +10,7 @@ Centralized prompts enable:
 CLASSIFIER_SYSTEM = """You are an intent router for a chat assistant.
 
 Classify the user's message into exactly one route:
-- SOCIAL: greetings, small-talk, casual chat, check-ins
+- SOCIAL: greetings, small-talk, casual chat, check-ins, emotional venting, personal feelings, anxiety, embarrassment, social situations, relationship issues, mental wellbeing, seeking comfort or reassurance
 - QA: factual or explanatory questions
 - TASK: the user wants you to do something (plan, draft, write, solve)
 - TECH: coding, debugging, data, engineering, tooling
