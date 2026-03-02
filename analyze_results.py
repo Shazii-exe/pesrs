@@ -134,16 +134,17 @@ def prepare(comp_df: pd.DataFrame, rate_df: pd.DataFrame) -> pd.DataFrame:
     # Enhanced wins
     df["enhanced_won"] = df["llm_winner"].isin(["Y", "ENHANCED"])
 
-    # Merge inline ratings
-    if not rate_df.empty and "comparison_id" in rate_df.columns:
-        rate_sub = rate_df[["comparison_id", "stars", "pick", "notes"]].rename(
-            columns={"stars": "inline_stars", "pick": "inline_pick", "notes": "inline_notes"}
-        )
-        df = df.merge(rate_sub, on="comparison_id", how="left")
-    else:
-        df["inline_stars"] = None
-        df["inline_pick"]  = None
-        df["inline_notes"] = None
+    # Merge inline ratings — only if not already present in comparisons table
+    if "inline_stars" not in df.columns:
+        if not rate_df.empty and "comparison_id" in rate_df.columns:
+            rate_sub = rate_df[["comparison_id", "stars", "pick", "notes"]].rename(
+                columns={"stars": "inline_stars", "pick": "inline_pick", "notes": "inline_notes"}
+            )
+            df = df.merge(rate_sub, on="comparison_id", how="left")
+        else:
+            df["inline_stars"] = None
+            df["inline_pick"]  = None
+            df["inline_notes"] = None
 
     # Normalise route column
     route_col = "route_predicted" if "route_predicted" in df.columns else "route"
