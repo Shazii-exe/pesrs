@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from gemini_client import generate_text, generate_json
 from prompts import CRITIQUE_SYSTEM, REVISE_SYSTEM, REWRITE_SYSTEM_FULL, REWRITE_SYSTEM_LIGHT
-from intent_classifier import classify_intent
 
 
 @dataclass
@@ -60,10 +59,6 @@ def rewrite_once(original_prompt: str, critique: CritiqueResult) -> str:
 
 def rewrite_prompt(original_prompt: str, mode: str = "full") -> str:
     """Option B (conditional editor prompt): rewrite with explicit SOCIAL passthrough."""
-    route = classify_intent(original_prompt, allow_llm=False).route
-    if route == "SOCIAL":
-        return original_prompt.strip()
-
     system = REWRITE_SYSTEM_FULL if mode == "full" else REWRITE_SYSTEM_LIGHT
     return generate_text(system=system, user=original_prompt, temperature=0.2).strip()
 
@@ -93,9 +88,6 @@ def self_refine_rewrite(
         "reason": crit.reason
     })
 
-    # Step 2: revise only if below threshold
-    if total < rewrite_threshold:
-        revised = rewrite_once(current, crit).strip()
-        return revised, trace
-
-    return current, trace
+    # Step 2: always rewrite — gate decision is made in answerer.py before calling this
+    revised = rewrite_once(current, crit).strip()
+    return revised, trace
