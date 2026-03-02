@@ -10,6 +10,9 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+# ── Quota Cooldown State ─────────────────────────────────────
+_GEMINI_COOLDOWN_UNTIL   = 0.0   # timestamp until which Gemini is disabled
+_GEMINI_COOLDOWN_SECONDS = 3600  # 1 hour cooldown after quota exhaustion
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [PEISR] %(message)s")
 log = logging.getLogger("peisr")
 
