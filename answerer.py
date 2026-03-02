@@ -177,8 +177,8 @@ Current user message:
     }
 
     # ── Step 3: GATE — is the prompt good enough? ──────────────────────────
-    # SOCIAL always bypasses rewrite
-    prompt_is_good = (route == "SOCIAL") or (orig_total >= threshold_used)
+    # All routes go through the gate equally — no exceptions
+    prompt_is_good = (orig_total >= threshold_used)
 
     if prompt_is_good:
         # ── DIRECT PATH: just answer, no rewrite, no A/B ──────────────────
