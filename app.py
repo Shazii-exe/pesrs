@@ -589,6 +589,28 @@ def render_black_box(d: dict):
               <div class='winner-tag' style='margin-bottom:8px'>✓ Winner: {d["winner_label"].upper()} · {d["shown_as"]}</div>
               <div class='bb-box winner'>{d["best_output"]}</div>
             </div>""", unsafe_allow_html=True)
+
+            # ── Human pick widget ──────────────────────────────
+            st.markdown("<div style='margin-top:12px;font-size:12px;font-weight:700;color:#9090a8'>👆 WHICH WAS BETTER?</div>", unsafe_allow_html=True)
+            pick_key = f"bb_pick_{d['run_id'][:8]}"
+            pick = st.radio(
+                "", ["ENHANCED (Y)", "ORIGINAL (X)", "TIE"],
+                horizontal=True, key=pick_key, label_visibility="collapsed"
+            )
+            if st.button("Save my pick", key=f"bb_save_pick_{d['run_id'][:8]}", use_container_width=True):
+                try:
+                    save_inline_rating(
+                        comparison_id=d["comparison_id"],
+                        run_id=d["run_id"],
+                        session_id=d["session_id"],
+                        human_rater=(st.session_state.get("rater_name", "") or "anonymous"),
+                        stars=0,
+                        pick=pick.split(" ")[0],
+                        notes="via inspect panel",
+                    )
+                    st.success("✅ Pick saved!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
         else:
             st.markdown(f"""
             <div class='bb-section'>
@@ -869,21 +891,14 @@ for i, msg in enumerate(messages):
                     st.markdown("<div style='font-size:11px;color:#22c55e;margin-top:4px'>✅ Rated</div>", unsafe_allow_html=True)
                 else:
                     with st.expander("⭐ Rate this response", expanded=False):
-                        r_col1, r_col2 = st.columns([1, 1])
-                        with r_col1:
-                            stars = st.radio(
-                                "Quality", [1, 2, 3, 4, 5],
-                                index=2, horizontal=True,
-                                key=f"inline_stars_{i}",
-                            )
-                        with r_col2:
-                            options = ["ENHANCED", "ORIGINAL", "TIE"] if run_d.get("rewritten") else ["GOOD", "NEUTRAL", "POOR"]
-                            pick = st.radio(
-                                "Which was better?" if run_d.get("rewritten") else "Response quality",
-                                options, horizontal=True,
-                                key=f"inline_pick_{i}",
-                            )
+                        stars = st.radio(
+                            "Quality", [1, 2, 3, 4, 5],
+                            index=2, horizontal=True,
+                            key=f"inline_stars_{i}",
+                        )
                         inline_notes = st.text_input("Notes (optional)", key=f"inline_notes_{i}", placeholder="Any comments...")
+                        if run_d.get("rewritten"):
+                            st.caption("💡 Click Inspect above to see both responses and pick a winner.")
                         if st.button("Submit rating", key=f"inline_submit_{i}", use_container_width=True):
                             try:
                                 save_inline_rating(
@@ -892,7 +907,7 @@ for i, msg in enumerate(messages):
                                     session_id=run_d.get("session_id", ""),
                                     human_rater=(st.session_state.get("rater_name", "") or "anonymous"),
                                     stars=int(stars),
-                                    pick=pick,
+                                    pick="",
                                     notes=inline_notes,
                                 )
                                 if "inline_rated_ids" not in st.session_state:
